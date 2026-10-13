@@ -7,12 +7,36 @@ import {
   ScrollView,
   StyleSheet,
 } from 'react-native';
-import { Video, ResizeMode } from 'expo-av';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { StatusBar } from 'expo-status-bar';
 
 import { getSources } from '../api';
 import { colors, spacing, radius } from '../theme';
+
+// Separate component so a fresh player is created for each stream URL.
+function Stream({ url, onStatus }) {
+  const player = useVideoPlayer(url, (p) => {
+    p.play();
+  });
+
+  useEffect(() => {
+    const sub = player.addListener('statusChange', ({ status, error }) => {
+      onStatus(status, error);
+    });
+    return () => sub.remove();
+  }, [player, onStatus]);
+
+  return (
+    <VideoView
+      style={StyleSheet.absoluteFill}
+      player={player}
+      nativeControls
+      allowsFullscreen
+      contentFit="contain"
+    />
+  );
+}
 
 export default function PlayerScreen({ route, navigation }) {
   const { episodeId, title, episodeNumber } = route.params;
@@ -53,8 +77,11 @@ export default function PlayerScreen({ route, navigation }) {
     return () => controller.abort();
   }, [episodeId, reloadKey]);
 
-  const onPlaybackStatusUpdate = useCallback((status) => {
-    if (status.isLoaded) setBuffering(status.isBuffering);
+  const onStatus = useCallback((status) => {
+    setBuffering(status === 'loading');
+    if (status === 'error') {
+      setError('This stream could not be played. Try another quality.');
+    }
   }, []);
 
   const current = sources[selected];
@@ -63,18 +90,7 @@ export default function PlayerScreen({ route, navigation }) {
     <View style={styles.container}>
       <StatusBar hidden />
 
-      {current && !error && (
-        <Video
-          key={current.url} // remount when switching quality
-          style={StyleSheet.absoluteFill}
-          source={{ uri: current.url }}
-          useNativeControls
-          resizeMode={ResizeMode.CONTAIN}
-          shouldPlay
-          onPlaybackStatusUpdate={onPlaybackStatusUpdate}
-          onError={() => setError('This stream could not be played. Try another quality.')}
-        />
-      )}
+      {current && !error && <Stream key={current.url} url={current.url} onStatus={onStatus} />}
 
       {(loading || (buffering && current && !error)) && (
         <View style={styles.center} pointerEvents="none">
